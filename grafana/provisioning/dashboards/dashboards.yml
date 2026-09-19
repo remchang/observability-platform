@@ -1,0 +1,21 @@
+# Grafana Dashboard 自动导入配置（provisioning）
+#
+# 把 grafana/dashboards/ 下的 JSON 自动加载成 Dashboard。
+# ★ allowUiUpdates: false 的意思是：在界面上改了不会保存回文件。
+#   这是刻意的——否则会出现"界面上改了、文件没变、换台机器就丢了"的经典问题。
+#   要改 Dashboard 请改 JSON 文件，然后重启 Grafana。
+
+apiVersion: 1
+
+providers:
+  - name: shiyan08
+    orgId: 1
+    folder: "实验08"
+    folderUid: shiyan08
+    type: file
+    disableDeletion: true       # 文件被删时不在界面上删 Dashboard，避免误删
+    updateIntervalSeconds: 30   # 每 30 秒扫一次文件变化
+    allowUiUpdates: false       # 以文件为准，界面上不可改
+    options:
+      path: <项目目录>/grafana/dashboards
+      foldersFromFilesStructure: false

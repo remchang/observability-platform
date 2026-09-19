@@ -1,0 +1,422 @@
+{
+  "uid": "shiyan08-zizhu",
+  "title": "实验08 · 被监控应用总览（自主设计）",
+  "description": "本人自主设计的 Dashboard。每个面板的 description 里写清了它回答的问题。不是导入的社区成品面板。",
+  "tags": ["shiyan08", "zizhu-sheji"],
+  "timezone": "browser",
+  "editable": true,
+  "schemaVersion": 39,
+  "refresh": "10s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "job",
+        "label": "抓取任务",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prom-demo" },
+        "query": "label_values(up, job)",
+        "refresh": 2,
+        "includeAll": false,
+        "multi": false,
+        "current": { "text": "demo-app", "value": "demo-app" }
+      },
+      {
+        "name": "route",
+        "label": "路由",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prom-demo" },
+        "query": "label_values(http_requests_total{job=\"$job\"}, route)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "① 服务是否在跑（up）",
+      "description": "回答的问题：Prometheus 现在能不能抓到目标？up=1 表示最近一次抓取成功。注意它只说明「能抓到 /metrics」，说明不了业务是否正常——那要看 app_up 和错误率。",
+      "datasource": { "type": "prometheus", "uid": "prom-demo" },
+      "gridPos": { "h": 6, "w": 5, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "up{job=\"$job\"}",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "无数据",
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red", "index": 0 } } },
+            { "type": "value", "options": { "1": { "text": "UP", "color": "green", "index": 1 } } }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "② 应用自报状态（app_up）",
+      "description": "回答的问题：应用自己认为能不能提供服务？这是应用主动置的 Gauge，比 up 更细——进程活着但业务不可用（比如依赖挂了）时，只有应用自己知道。",
+      "datasource": { "type": "prometheus", "uid": "prom-demo" },
+      "gridPos": { "h": 6, "w": 4, "x": 5, "y": 0 },
+      "targets": [
+        { "expr": "app_up{job=\"$job\"}", "legendFormat": "app_up", "refId": "A" }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "无数据",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "③ 当前 5xx 错误率（5 分钟窗口）",
+      "description": "回答的问题：现在用户有多少比例在遇到错误？用 rate(...[5m]) 而不用 increase(...[1m])——1 分钟窗口在低流量下分母太小，比例会剧烈抖动。这个面板的阈值和告警规则 GaoCuowuLv 一致（5%）。",
+      "datasource": { "type": "prometheus", "uid": "prom-demo" },
+      "gridPos": { "h": 6, "w": 5, "x": 9, "y": 0 },
+      "targets": [
+        {
+          "expr": "(\n  sum(rate(http_requests_total{job=\"$job\", status=~\"5..\"}[5m]))\n  /\n  sum(rate(http_requests_total{job=\"$job\"}[5m]))\n) and sum(rate(http_requests_total{job=\"$job\"}[5m])) > 0.1",
+          "legendFormat": "5xx 占比",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 2,
+          "noValue": "无流量",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.01 },
+              { "color": "red", "value": 0.05 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "④ 请求速率（按路由）",
+      "description": "回答的问题：现在有多少流量、来自哪些接口？Counter 是累计值，必须用 rate() 才能看出「每秒多少」。直接画原始值会得到一条一直上升的线，看不出任何东西。",
+      "datasource": { "type": "prometheus", "uid": "prom-demo" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        {
+          "expr": "sum by (route) (rate(http_requests_total{job=\"$job\", route=~\"$route\"}[1m]))",
+          "legendFormat": "{{route}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 3,
+          "noValue": "无数据",
+          "custom": { "fillOpacity": 12, "lineWidth": 2, "showPoints": "never" }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "⑤ 延迟分位数 p50 / p95 / p99",
+      "description": "回答的问题：响应慢不慢？慢在哪一段？★ 为什么用 Histogram 而不是平均值：平均值会把「少数很慢的请求」平均掉。举例：99 个 10ms + 1 个 2000ms，平均只有 29.9ms 看着很好，但实际有 1% 的用户等了 2 秒。必须看分位数才能发现长尾。",
+      "datasource": { "type": "prometheus", "uid": "prom-demo" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"$job\", route=~\"$route\"}[5m])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"$job\", route=~\"$route\"}[5m])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"$job\", route=~\"$route\"}[5m])))",
+          "legendFormat": "p99",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(http_request_duration_seconds_sum{job=\"$job\", route=~\"$route\"}[5m])) / sum(rate(http_request_duration_seconds_count{job=\"$job\", route=~\"$route\"}[5m]))",
+          "legendFormat": "平均值（对比用）",
+          "refId": "D"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 4,
+          "noValue": "无数据（可能流量太小，Histogram 桶里没样本）",
+          "custom": { "fillOpacity": 0, "lineWidth": 2, "showPoints": "never" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "平均值（对比用）" },
+            "properties": [{ "id": "custom.lineStyle", "value": { "dash": [8, 4], "fill": "dash" } }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "⑥ 状态码分布",
+      "description": "回答的问题：错误是什么类型？4xx 说明客户端请求有问题，5xx 说明服务端有问题——两者处置方式完全不同，必须分开看。",
+      "datasource": { "type": "prometheus", "uid": "prom-demo" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 14 },
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(http_requests_total{job=\"$job\"}[1m]))",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 3,
+          "noValue": "无数据",
+          "custom": { "fillOpacity": 25, "lineWidth": 1, "stacking": { "mode": "normal" }, "showPoints": "never" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": "5.." },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+          },
+          {
+            "matcher": { "id": "byRegexp", "options": "4.." },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "⑦ 进程 CPU（每秒消耗的 CPU 秒 = 用了几个核）",
+      "description": "回答的问题：这个进程吃了多少 CPU？★ 口径说明：这是**当前应用进程**，不是整机 CPU。整机要用 node_exporter。rate(process_cpu_seconds_total[1m]) 的单位是「每秒消耗的 CPU 秒」，可以理解成「用了几个核」（1.0 = 一个核满）。",
+      "datasource": { "type": "prometheus", "uid": "prom-demo" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 14 },
+      "targets": [
+        {
+          "expr": "rate(process_cpu_seconds_total{job=\"$job\"}[1m])",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "single" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 3,
+          "noValue": "无数据",
+          "custom": { "fillOpacity": 15, "lineWidth": 2, "showPoints": "never" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.8 },
+              { "color": "red", "value": 1.5 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "⑧ 进程内存（RSS）",
+      "description": "回答的问题：内存有没有持续增长（疑似泄漏）？★ 同样注意口径：进程 RSS，不是整机内存。看趋势比看绝对值重要——一条持续向上的斜线才是问题信号。",
+      "datasource": { "type": "prometheus", "uid": "prom-demo" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 14 },
+      "targets": [
+        {
+          "expr": "process_resident_memory_bytes{job=\"$job\"}",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "single" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "decimals": 1,
+          "noValue": "无数据",
+          "custom": { "fillOpacity": 15, "lineWidth": 2, "showPoints": "never" }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "⑨ 在途请求数（并发压力）",
+      "description": "回答的问题：同一时刻有多少请求正在处理？这个值上升而请求速率不变，说明单个请求变慢了（积压）；这个值上升且速率也上升，说明流量涨了。它和延迟一起看才能区分「流量问题」和「慢请求问题」。",
+      "datasource": { "type": "prometheus", "uid": "prom-demo" },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 22 },
+      "targets": [
+        {
+          "expr": "app_in_flight_requests{job=\"$job\"}",
+          "legendFormat": "在途请求",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "无数据",
+          "custom": { "fillOpacity": 20, "lineWidth": 2, "showPoints": "never" }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "⑩ 抓取耗时（Prometheus 自己）",
+      "description": "回答的问题：抓取 /metrics 要多久？接近 scrape_timeout（10s）就是危险信号——说明目标响应变慢但还没超时，是「即将抓不到」的前兆。这叫预测性告警，比等到 up==0 才反应更有用。",
+      "datasource": { "type": "prometheus", "uid": "prom-demo" },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 22 },
+      "targets": [
+        {
+          "expr": "scrape_duration_seconds{job=\"$job\"}",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 4,
+          "noValue": "无数据",
+          "custom": { "fillOpacity": 0, "lineWidth": 2, "showPoints": "never" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 9 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "name": "异常实验时间线",
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "iconColor": "red",
+        "type": "tags",
+        "tags": ["yichang-shiyan"],
+        "description": "手工打点：跑负载/延迟/停机实验时在图上标一下开始时间，事后才对得上曲线。"
+      }
+    ]
+  },
+  "links": [
+    {
+      "title": "指标设计表",
+      "type": "link",
+      "url": "https://github.com/remchang/observability-platform/blob/main/metrics-design.md",
+      "targetBlank": true
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+# Grafana 数据源自动配置（provisioning）
+#
+# 为什么用 provisioning 而不是手工在界面上点：
+#   ① 手工配的数据源存在 Grafana 的数据库里，换台机器就没了；
+#   ② provisioning 是文件，能进 Git、能被复核、能一键重建；
+#   ③ 实验要求"配置和 Dashboard 应可导出复现"。
+#
+# 启动 Grafana 时加参数指向本目录：
+#   grafana.exe server --homepath . --config conf\custom.ini
+# 其中 custom.ini 里写：
+#   [paths]
+#   provisioning = <项目>/grafana/provisioning
+
+apiVersion: 1
+
+# 删除界面上手工加的数据源，保证以文件为准（避免两份配置打架）
+deleteDatasources:
+  - name: Prometheus-Demo
+    orgId: 1
+
+datasources:
+  - name: Prometheus-Demo
+    uid: prom-demo             # ★ 固定 uid：Dashboard JSON 里引用的是这个，
+                               #   不固定的话换机器导入会对不上数据源
+    type: prometheus
+    access: proxy              # 由 Grafana 后端代理请求（浏览器不直连 Prometheus）
+    # ★ 容器路线要用 http://prometheus:9090
+    #   原生路线用 http://127.0.0.1:9090
+    #   容器里的 localhost 指的是容器自己，这是最常见的坑
+    url: http://127.0.0.1:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      # 和 prometheus.yml 的 scrape_interval 保持一致，
+      # 这样 Grafana 的 $__rate_interval 才能算出合适的窗口
+      timeInterval: 15s
+      httpMethod: POST
+      # 不做 TLS 校验：本地 http 环境
+      tlsSkipVerify: true
+      # 明确只取指标，不引入 exemplar（本实验没开 trace）
+      exemplarTraceIdDestinations: []
