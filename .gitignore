@@ -1,0 +1,38 @@
+# ---- Python ----
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+pip*.txt
+*.log
+
+# ---- 下载的工具（体积大，可重新下载）----
+_tool/
+prometheus-*/
+prometheus.exe
+promtool.exe
+grafana-*/
+grafana.exe
+
+# ---- 运行数据（时序库与 Grafana 数据库）----
+# TSDB 会随时间不断增长，绝不能入库。
+# Grafana 的 grafana.db 里存的是界面上的临时改动——本实验用 provisioning
+# 管理配置，所以它也是运行态。
+tsdb/
+data-prometheus/
+grafana/data/
+*.db
+*.db-wal
+*.db-shm
+
+# ---- 异常实验的原始输出 ----
+# reports/ 里的"异常时间线"结论要入库（是交付物），
+# 但原始 JSON 输出和截图属于运行产物。
+reports/*.json
+!reports/timeline.md
+reports/*.png
+
+# ---- 凭据 ----
+.env
+*.pem
+*.key
