@@ -1,0 +1,61 @@
+# ============================================================
+# Prometheus 抓取配置
+#
+# 用 promtool 校验：
+#   promtool check config prometheus/prometheus.yml
+#   promtool check rules  prometheus/alert-rules.yml
+#
+# ★ 原生 Windows 路线：targets 用 127.0.0.1:8000
+#   容器路线：targets 用 app:8000（服务名，不能用 localhost——
+#   容器里的 localhost 指的是容器自己）
+# ============================================================
+
+global:
+  # 抓取间隔。15s 是常规值：够快能看出变化，又不至于让时序库膨胀。
+  # 调小会增加存储和查询压力，课程环境没必要。
+  scrape_interval: 15s
+  # 规则（告警/预聚合）的评估间隔
+  evaluation_interval: 15s
+  # 给每次抓取设超时，避免慢目标把抓取队列堵住
+  scrape_timeout: 10s
+  # 外部标签：多环境（本机 / 容器）时区分数据来源
+  external_labels:
+    huanjing: shiyan08
+    zhuji: bendi
+
+# 告警规则文件
+rule_files:
+  - "alert-rules.yml"
+
+scrape_configs:
+  # ---------------- 被监控应用 ----------------
+  - job_name: demo-app
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["127.0.0.1:8000"]
+        labels:
+          yingyong: demo-app
+          yunxingmoshi: yuanxing-windows
+
+  # ---------------- Prometheus 自己 ----------------
+  # 监控系统本身也要被监控。否则 Prometheus 挂了没人知道——
+  # 这是很常见的一个盲区。
+  - job_name: prometheus
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["127.0.0.1:9090"]
+        labels:
+          yingyong: prometheus
+
+  # ---------------- Grafana（可选）----------------
+  # Grafana OSS 默认不暴露 Prometheus 格式的 /metrics，
+  # 需要企业版或额外的 exporter。这里留着注释说明，
+  # 不写无效的 target 误导人。
+  # - job_name: grafana
+  #   static_configs:
+  #     - targets: ["127.0.0.1:3000"]
+
+# 注意：
+#   1) 不要同时跑原生和容器两条路线，否则同一份数据会重复抓取。
+#   2) 数据目录用启动参数 --storage.tsdb.path 指定到实验目录内，
+#      不要依赖系统默认路径（可能没权限）。

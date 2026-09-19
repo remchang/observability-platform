@@ -1,0 +1,223 @@
+# ============================================================
+# 告警规则
+#
+# 校验： promtool check rules prometheus/alert-rules.yml
+#
+# ★ 阈值怎么来的（指导书要求"先解释阈值来自何处，不用一次尖峰触发"）：
+#   每条规则的 shuoming 里都写了「阈值依据」。三条共同原则：
+#     ① 必须有 for 持续时间——没有 for 的告警会被一次瞬时尖峰触发，
+#        用不了多久就没人看了
+#     ② 阈值来自历史基线或与受控实验的对比，不是拍脑袋
+#     ③ 用 rate()/increase() 而不是 Counter 的原始累计值
+# ============================================================
+
+groups:
+  # ---------------- 可用性 ----------------
+  - name: ke-yong-xing
+    interval: 15s
+    rules:
+      - alert: YingyongBukeYong
+        # up == 0 意味着连 /metrics 都抓不到 → 进程挂了或网络不通
+        expr: up{job="demo-app"} == 0
+        for: 1m
+        labels:
+          yanzhong: yanzhong
+          leibie: keyongxing
+        annotations:
+          zhaiyao: "被监控应用不可达"
+          shuoming: |
+            已经连续 1 分钟抓不到 {{ $labels.instance }} 的 /metrics。
+            阈值依据：抓取间隔是 15s，for=1m 等于连续 4 次都失败才告警。
+            这么设是为了避开"Prometheus 自身抖动"和"目标正在滚动重启"
+            这类几十秒内自愈的情况；不设 for 的话重启一次就告警一次。
+            排查顺序：① 进程还在不在 ② 端口有没有被占用
+            ③ 防火墙/绑定地址（应用必须监听 0.0.0.0 才能被容器外的 Prometheus 抓到）
+          jiazhi: "{{ $value }}"
+
+      - alert: YingyongZizhuZhuangtaiYichang
+        # 应用自己报的 app_up == 0（比如依赖挂了时主动置 0）
+        expr: app_up{job="demo-app"} == 0
+        for: 2m
+        labels:
+          yanzhong: yanzhong
+          leibie: keyongxing
+        annotations:
+          zhaiyao: "应用自报状态异常"
+          shuoming: |
+            阈值依据：app_up 是应用主动置的，比 up 更细——进程活着但业务
+            不可用（比如数据库连不上）时只有应用自己知道。给 2m 是因为
+            依赖的瞬时抖动很常见，持续 2 分钟才算真的有问题。
+            处置：去看应用日志，不要只盯进程状态。
+
+  # ---------------- 错误率 ----------------
+  - name: cuowu-lv
+    interval: 15s
+    rules:
+      - alert: GaoCuowuLv
+        # 5xx 占全部请求的比例。
+        # 用 rate(...[5m]) 而不是 increase(...[1m])：
+        #   1 分钟窗口在低流量下样本太少，分母小的时候比例会剧烈抖动。
+        #   5 分钟窗口平滑掉单次尖峰，代价是反应慢一点——这个取舍值得。
+        expr: |
+          (
+            sum(rate(http_requests_total{job="demo-app", status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{job="demo-app"}[5m]))
+          ) > 0.05
+          and
+          sum(rate(http_requests_total{job="demo-app"}[5m])) > 0.1
+        for: 2m
+        labels:
+          yanzhong: jinggao
+          leibie: cuowulv
+        annotations:
+          zhaiyao: "5xx 错误率超过 5%"
+          shuoming: |
+            过去 5 分钟 5xx 占比 {{ $value | humanizePercentage }}，已持续 2 分钟。
+            阈值依据：本应用在正常演示下错误率是 0；受控的 /api/error 实验会
+            把错误率推到 50% 以上。5% 卡在两者之间，能明确区分"正常"和"在报错"。
+            真实系统应该从 SLO 反推（比如错误预算耗尽速度）。
+            ★ 后面的 `and sum(...) > 0.1` 是**分母保护**：流量极低时（比如
+            1 分钟只有 2 个请求），一次 500 就能让比例冲到 50% 导致误报。
+            先看是哪个 route/status 在涨：
+              sum by (route, status) (rate(http_requests_total{status=~"5.."}[5m]))
+          jiazhi: "{{ $value | humanizePercentage }}"
+
+  # ---------------- 延迟 ----------------
+  - name: yanchi
+    interval: 15s
+    rules:
+      - alert: P95YanchiGuogao
+        # p95 用 histogram_quantile 从 _bucket 算。
+        # ★ 三个必须做对的地方：
+        #   ① 用 rate() 作用在 _bucket 上（Counter 不能直接拿分位数）
+        #   ② sum by (le) —— 缺了 le 聚合算出来的是错的
+        #   ③ 窗口 5m 要和分位数一起考虑：窗口越短，分位数越不稳定
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket{job="demo-app"}[5m]))
+          ) > 1
+        for: 3m
+        labels:
+          yanzhong: jinggao
+          leibie: yanchi
+        annotations:
+          zhaiyao: "p95 延迟超过 1 秒"
+          shuoming: |
+            过去 5 分钟 p95 = {{ $value | humanizeDuration }}，持续 3 分钟。
+            阈值依据：本应用正常响应在 10ms 量级；受控的 /api/slow 实验会把
+            p95 推到 500ms~2s。1 秒卡在两者之间，能明确区分。
+            for 给 3 分钟而不是 1 分钟，是因为延迟类指标最容易抖。
+          jiazhi: "{{ $value }}s"
+
+      - alert: P50YanchiMingxianShangSheng
+        # 中位数也涨说明是"整体变慢"，不是"少数请求特别慢"。
+        expr: |
+          histogram_quantile(
+            0.50,
+            sum by (le) (rate(http_request_duration_seconds_bucket{job="demo-app"}[5m]))
+          ) > 0.3
+        for: 5m
+        labels:
+          yanzhong: xinxi
+          leibie: yanchi
+        annotations:
+          zhaiyao: "p50 延迟超过 300ms，属于整体性变慢"
+          shuoming: |
+            阈值依据：正常 p50 在 5ms 以下，300ms 已经是两个数量级的偏离。
+            持续 5 分钟才报，因为 p50 对样本分布变化比 p95 敏感，容易短暂抬头。
+            和 p95 一起看能区分两种故障：
+              p95 涨、p50 不涨 → 长尾问题（个别慢依赖、GC）
+              p50 也涨         → 整体性变慢（资源不足、锁竞争）
+
+  # ---------------- 资源 ----------------
+  - name: ziyuan
+    interval: 15s
+    rules:
+      - alert: JinchengNeicunPianGao
+        # 进程 RSS。
+        # ★ 注意口径：这是**进程**内存，不是整机。别和 node_exporter 的
+        #   整机内存混在一张图上比。
+        expr: process_resident_memory_bytes{job="demo-app"} > 512 * 1024 * 1024
+        for: 5m
+        labels:
+          yanzhong: xinxi
+          leibie: ziyuan
+        annotations:
+          zhaiyao: "进程常驻内存超过 512MB"
+          shuoming: |
+            进程 RSS = {{ $value | humanize1024 }}B，已持续 5 分钟。
+            阈值依据：本应用正常占 60~90MB，512MB 留了约 5 倍余量；
+            真实系统应该按容器 limit 的 80% 来设，而不是拍一个绝对值。
+            for 给 5 分钟是为了避开 GC 峰值——瞬时高不算泄漏，
+            一条持续向上的斜线才是。
+
+      - alert: JinchengCpuChixuPianGao
+        # rate(process_cpu_seconds_total[5m]) 的单位是"每秒消耗的 CPU 秒"，
+        # 可以理解为"用了几个核"。> 0.8 说明基本吃满一个逻辑核。
+        expr: rate(process_cpu_seconds_total{job="demo-app"}[5m]) > 0.8
+        for: 5m
+        labels:
+          yanzhong: xinxi
+          leibie: ziyuan
+        annotations:
+          zhaiyao: "进程 CPU 持续偏高"
+          shuoming: |
+            当前约 {{ $value }} 核。
+            阈值依据：单 worker 的应用在演示负载下通常 < 0.2 核，
+            0.8 核已经接近把一个逻辑核吃满，是一个明确偏离基线的信号。
+            ★ 重要提醒：**CPU 高不等于就是根因**。CPU 升高和 p95 升高
+            同时出现，也可能两者都是同一个阻塞行为的结果（比如锁竞争）。
+            要结合请求量和延迟一起看才能判断因果关系。
+
+  # ---------------- 抓取健康 ----------------
+  - name: zhuaqu-jiankang
+    interval: 30s
+    rules:
+      - alert: ZhuaquShibai
+        # 目标抓取失败。和 YingyongBukeYong 的区别：
+        # 这条覆盖所有 job（包括 Prometheus 自己）
+        expr: up == 0
+        for: 2m
+        labels:
+          yanzhong: jinggao
+          leibie: zhuaqu
+        annotations:
+          zhaiyao: "目标抓取失败：{{ $labels.job }}/{{ $labels.instance }}"
+          shuoming: |
+            连续 2 分钟抓取失败。
+            阈值依据：抓取间隔 15s，2 分钟等于连续 8 次失败，
+            足以排除网络瞬时抖动。先把目标地址和网络确认一遍，
+            再看目标进程本身。覆盖所有 job 是为了不漏掉 Prometheus 自己。
+
+      - alert: ZhuaquBianMan
+        # scrape_duration_seconds 接近 scrape_timeout（10s）时，
+        # 说明目标响应慢但还没超时——这是"即将抓不到"的**前兆**信号。
+        # 这种预测性告警比等到 up==0 才报有用得多。
+        expr: scrape_duration_seconds{job="demo-app"} > 5
+        for: 3m
+        labels:
+          yanzhong: xinxi
+          leibie: zhuaqu
+        annotations:
+          zhaiyao: "抓取耗时超过 5 秒，接近超时（10s）"
+          shuoming: |
+            阈值依据：scrape_timeout 是 10s，5s 是它的一半。
+            到了这个量级说明 /metrics 的生成被拖慢了，
+            再慢下去就会开始抓取失败。属于预测性告警，目的是提前介入。
+            检查方向：/metrics 是不是被阻塞、指标数量是不是暴涨（基数失控）。
+
+      - alert: GuizePingguShichang
+        expr: rate(prometheus_rule_evaluation_failures_total[5m]) > 0
+        for: 5m
+        labels:
+          yanzhong: xinxi
+          leibie: zhuaqu
+        annotations:
+          zhaiyao: "Prometheus 规则评估出现失败"
+          shuoming: |
+            阈值依据：这个指标正常恒为 0，只要出现非零就说明规则本身坏了，
+            没有"程度"可分级，所以用 > 0。
+            此时告警通知链路已不可信（规则都跑不了），必须优先修它，
+            否则后面所有的告警都可能是假的。
